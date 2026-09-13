@@ -1,0 +1,19 @@
+# WorkBuddy 运行时目录
+.workbuddy/
+
+# 编辑器与 IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# 依赖与日志
+node_modules/
+*.log
+npm-debug.log*

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>typo 在线打字练习</title>
+<meta name="description" content="一个安静、干净的打字练习空间。英文名言、限时与词数练习，成绩只保存在本机。">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/400.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/500.min.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#typer">跳到输入区</a>
+
+<header class="bar" id="bar">
+  <span class="mark" aria-hidden="true">typo</span>
+
+  <nav class="modes" id="modes" aria-label="练习模式">
+    <button type="button" data-mode="learn">入门</button>
+    <button type="button" data-mode="time">限时</button>
+    <button type="button" data-mode="words">词数</button>
+    <button type="button" data-mode="quote">名言</button>
+    <button type="button" data-mode="zen">无限</button>
+  </nav>
+
+  <div class="params" id="params" role="group" aria-label="模式参数"></div>
+</header>
+
+<main class="stage" id="stage">
+
+  <section class="typing" id="typing" aria-label="打字区">
+    <div class="words" id="wordsWrap">
+      <div class="words-inner" id="wordsInner">
+        <div class="words-text" id="wordsText"></div>
+        <div class="caret" id="caret" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="tick" id="tick" aria-hidden="true"><i id="tickFill"></i></div>
+
+    <div class="readout" id="readout" aria-hidden="true">
+      <span><b id="rCpm">0</b>字符/分</span>
+      <span><b id="rAcc">100</b>%</span>
+      <span><b id="rTime">0</b>秒</span>
+    </div>
+
+    <p class="hint" id="hint">开始输入</p>
+  </section>
+
+  <section class="result" id="result" aria-labelledby="resTitle" hidden>
+    <h2 class="sr-only" id="resTitle">本轮成绩</h2>
+
+    <div class="res-top">
+      <p class="res-big"><b id="resCpm">0</b><span>字符/分钟</span></p>
+      <p class="res-big"><b id="resAcc">0</b><span>准确率</span></p>
+      <span class="res-best" id="resBest" hidden>个人最佳</span>
+    </div>
+
+    <div class="res-chart">
+      <canvas id="chart" height="150"></canvas>
+    </div>
+
+    <p class="res-source" id="resSource" hidden></p>
+
+    <dl class="res-grid">
+      <div><dt>原始速度</dt><dd id="resRaw">0</dd></div>
+      <div><dt>稳定性</dt><dd id="resCons">0</dd></div>
+      <div><dt>字符数</dt><dd id="resChars">0</dd></div>
+      <div><dt>用时</dt><dd id="resTime">0 秒</dd></div>
+    </dl>
+
+    <div class="res-actions">
+      <button type="button" id="btnNext" class="act act-primary">
+        <span id="nextLabel">下一关</span><kbd>Enter</kbd>
+      </button>
+      <button type="button" id="btnRepeat" class="act">
+        <span>重练</span><kbd>Esc</kbd>
+      </button>
+    </div>
+  </section>
+
+</main>
+
+<input id="typer" class="typer" type="text" autocomplete="off" autocorrect="off"
+       autocapitalize="off" spellcheck="false" aria-label="打字输入" tabindex="0">
+
+<footer class="tools">
+  <button type="button" id="btnTeach" class="tool" aria-label="手指位置与快捷键">
+    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M8.05 7.55a1.95 1.95 0 113.5 1.25c-.62.66-1.55.95-1.55 1.9"
+            fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <circle cx="10" cy="14.15" r="0.85" fill="currentColor"/>
+    </svg>
+  </button>
+  <button type="button" id="btnStats" class="tool" aria-label="练习记录">
+    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+      <path d="M4 16V9M10 16V4M16 16v-5" fill="none" stroke="currentColor"
+            stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <button type="button" id="btnSound" class="tool" aria-label="按键音" aria-pressed="false">
+    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+      <path d="M5 8v4h3l4 3V5L8 8H5z" fill="none" stroke="currentColor"
+            stroke-width="1.4" stroke-linejoin="round"/>
+      <path class="wave" d="M14.5 7.5a3.5 3.5 0 010 5" fill="none" stroke="currentColor"
+            stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <button type="button" id="btnTheme" class="tool" aria-label="深浅色">
+    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+      <path d="M15.5 11.5A6 6 0 018.5 4.5a6 6 0 107 7z" fill="none" stroke="currentColor"
+            stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</footer>
+
+<dialog id="teach" class="panel">
+  <div class="panel-head">
+    <h2>手指怎么放</h2>
+    <button type="button" id="btnTeachClose" class="panel-close" aria-label="关闭">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+        <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="currentColor"
+              stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel-body">
+    <div class="hands-figure" id="handsFigure"></div>
+
+    <p class="hands-note">
+      手指停在基准行上。左右食指分别放在 <b>f</b> 和 <b>j</b> —— 这两个键上有一道凸起的小横条。
+      每根手指负责一列，向上或向下够完之后，都要回到原位。
+    </p>
+
+    <ul class="keyhelp">
+      <li><kbd>Enter</kbd><span>进入下一关</span></li>
+      <li><kbd>Esc</kbd><span>重练本关；练习中则返回课程表</span></li>
+    </ul>
+  </div>
+
+  <div class="panel-foot">
+    <button type="button" id="btnTeachOk" class="solid">我已记住</button>
+  </div>
+</dialog>
+
+<dialog id="panelLessons" class="panel">
+  <div class="panel-head">
+    <h2>全部课程</h2>
+    <button type="button" id="btnLessonsClose" class="panel-close" aria-label="关闭">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+        <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="currentColor"
+              stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel-body" id="lessonsBody"></div>
+</dialog>
+
+<dialog id="panel" class="panel">
+  <div class="panel-head">
+    <h2 id="panelTitle">练习记录</h2>
+    <button type="button" id="btnClose" class="panel-close" aria-label="关闭">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+        <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="currentColor"
+              stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel-body">
+    <section class="pane" id="paneBest">
+      <h3>个人最佳</h3>
+      <dl class="best-list" id="bestList"></dl>
+    </section>
+
+    <section class="pane" id="paneHistory">
+      <h3>最近记录</h3>
+      <ol class="hist-list" id="histList"></ol>
+      <p class="empty" id="histEmpty">还没有任何记录</p>
+    </section>
+  </div>
+
+  <div class="panel-foot">
+    <button type="button" id="btnClear" class="ghost">清空全部数据</button>
+  </div>
+</dialog>
+
+<script src="js/quotes.js"></script>
+<script src="js/drills.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
