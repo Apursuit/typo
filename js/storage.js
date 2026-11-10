@@ -45,7 +45,11 @@ window.Store = (function () {
     var saved = read(KEY.settings, {});
     return {
       theme: saved.theme === "dark" ? "dark" : "light",
-      sound: saved.sound === true,
+      /* Sound is on unless it was explicitly turned off. A boolean that
+         defaults to false cannot tell "never asked" from "asked for
+         silence", so a first-time visitor got a mute app and someone who
+         had switched it off got it back on every launch. */
+      sound: saved.sound !== false,
       taught: saved.taught === true
     };
   }

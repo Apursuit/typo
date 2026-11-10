@@ -11,6 +11,7 @@
 
   var els = {
     bar: $("bar"),
+    stage: $("stage"),
     modes: $("modes"),
     params: $("params"),
     typing: $("typing"),
@@ -35,6 +36,8 @@
     resTime: $("resTime"),
     chart: $("chart"),
     resSource: $("resSource"),
+    resDelta: $("resDelta"),
+    resErrs: $("resErrs"),
     btnNext: $("btnNext"),
     btnRepeat: $("btnRepeat"),
     nextLabel: $("nextLabel"),
@@ -272,6 +275,7 @@
     els.typer.value = "";
     els.result.hidden = true;
     els.typing.hidden = false;
+    els.stage.classList.remove("is-result");
     els.readout.classList.remove("is-out");
 
     if (state.engine) state.engine.destroy();
@@ -297,13 +301,18 @@
     state.lastGood = "";
     state.textCapped = false;
     els.tick.classList.toggle("on", state.mode === "time");
+    els.tick.classList.remove("is-low", "is-final");
     els.tickFill.style.transform = "scaleX(0)";
+    els.rCpm.classList.remove("is-flow");
     els.typing.classList.remove("is-idle");
 
     undim();
     focusTyper();
+    /* the first paint of a fresh run can happen before the browser has
+       settled the new text, so the geometry is rebuilt once the frame
+       lands rather than trusted from reset() */
     requestAnimationFrame(function () {
-      if (state.engine) state.engine.moveCaret();
+      if (state.engine) state.engine.remeasure();
     });
   }
 
@@ -516,15 +525,28 @@
     els.teach.close();
   }
 
+  /* A streak long enough to mean the hands are actually working, not
+     just a lucky opening. Set well past anything an ordinary run
+     reaches by accident, so the green stays rare. */
+  var FLOW_STREAK = 40;
+
   function onProgress(s) {
-    els.rCpm.textContent = String(Math.round(s.cpm) || 0);
+    /* the windowed rate, not the run average — an average moves by a
+       fraction of a point per keystroke and therefore never reacts.
+       A pause drains the window, so the number falls to zero while the
+       hands are still, which is the honest reading. */
+    els.rCpm.textContent = String(Math.round(s.live) || 0);
+    els.rCpm.classList.toggle("is-flow", s.streak >= FLOW_STREAK);
 
     /* a timed run counts down — what matters to the typist is what
        is left, not what has gone */
     if (state.mode === "time" && state.param) {
-      els.rTime.textContent = String(Math.max(0, Math.ceil(state.param - s.seconds)));
+      var left = Math.max(0, state.param - s.seconds);
+      els.rTime.textContent = String(Math.ceil(left));
       els.tickFill.style.transform =
         "scaleX(" + Math.min(1, s.seconds / state.param).toFixed(4) + ")";
+      els.tick.classList.toggle("is-low", left <= state.param * 0.25);
+      els.tick.classList.toggle("is-final", left <= 5.5);
     } else {
       els.rTime.textContent = String(Math.floor(s.seconds));
     }
@@ -551,6 +573,29 @@
     if (state.engine.started && !state.dimmed && s.progress > 0) dim();
   }
 
+  /* The most recent run of the same mode and parameter — what "better
+     than last time" has to be measured against. Must be read before
+     addRun prepends the run being displayed. */
+  function previousRun(mode, param) {
+    var runs = window.Store.getHistory();
+    for (var i = 0; i < runs.length; i++) {
+      if (runs[i].mode === mode && runs[i].param === param) return runs[i];
+    }
+    return null;
+  }
+
+  /* Three is the point where the list stops being a diagnosis and turns
+     into a wall of noise. */
+  function topErrors(map) {
+    if (!map) return [];
+    var out = [];
+    Object.keys(map).forEach(function (key) {
+      out.push({ c: key, n: map[key] });
+    });
+    out.sort(function (a, b) { return b.n - a.n; });
+    return out.slice(0, 3);
+  }
+
   function onEnd(result) {
     var acc = window.Stats.accuracy(result.correct, result.incorrect, result.extra);
     var cons = consistencyOf(result.samples);
@@ -564,13 +609,16 @@
       cons: Math.round(cons),
       chars: result.correct,
       time: Math.round(result.seconds),
+      streak: result.streakMax,
+      errChars: topErrors(result.errMap),
       at: Date.now()
     };
 
+    var previous = previousRun(record.mode, record.param);
     var isBest = window.Store.addRun(record);
     state.lastResult = { record: record, raw: result };
 
-    showResult(record, result, isBest);
+    showResult(record, result, isBest, previous);
   }
 
   /* Instantaneous rate between consecutive samples. Using the
@@ -591,9 +639,10 @@
      result screen
      ============================================================ */
 
-  function showResult(record, result, isBest) {
+  function showResult(record, result, isBest, previous) {
     els.typing.hidden = true;
     els.result.hidden = false;
+    els.stage.classList.add("is-result");
 
     els.resCpm.textContent = String(record.cpm);
     els.resAcc.textContent = String(record.acc);
@@ -617,9 +666,64 @@
     els.resSource.textContent = source ? "— " + source : "";
     els.resSource.hidden = !source;
 
+    renderDelta(record, previous);
+    renderErrChars(record);
+
     requestAnimationFrame(function () {
       drawChart(result.samples);
     });
+  }
+
+  /* A personal best is nobody's baseline. What the typist actually wants
+     to know after a run is whether this one was better than the last one
+     of the same mode. */
+  function renderDelta(record, previous) {
+    els.resDelta.textContent = "";
+    els.resDelta.className = "res-delta";
+
+    if (!previous) {
+      els.resDelta.hidden = true;
+      return;
+    }
+
+    var diff = record.cpm - previous.cpm;
+    if (diff === 0) {
+      els.resDelta.textContent = "与上次持平";
+    } else {
+      els.resDelta.classList.add(diff > 0 ? "is-up" : "is-down");
+      els.resDelta.appendChild(document.createTextNode(diff > 0 ? "比上次快 " : "比上次慢 "));
+      var mark = document.createElement("b");
+      mark.textContent = String(Math.abs(diff));
+      els.resDelta.appendChild(mark);
+      els.resDelta.appendChild(document.createTextNode(" 字符/分"));
+    }
+
+    els.resDelta.hidden = false;
+  }
+
+  /* Errors used to be summarised as a percentage, which says how often
+     but never where. The characters themselves are the actionable part. */
+  function renderErrChars(record) {
+    els.resErrs.textContent = "";
+    var top = record.errChars || [];
+
+    if (!top.length) {
+      els.resErrs.hidden = true;
+      return;
+    }
+
+    els.resErrs.appendChild(document.createTextNode("常错 "));
+    top.forEach(function (item) {
+      var code = document.createElement("code");
+      code.textContent = item.c === " " ? "空格" : item.c;
+      els.resErrs.appendChild(code);
+      var count = document.createElement("b");
+      count.textContent = "×" + item.n;
+      els.resErrs.appendChild(count);
+      els.resErrs.appendChild(document.createTextNode("  "));
+    });
+
+    els.resErrs.hidden = false;
   }
 
   /* ---------- chart ---------- */
@@ -635,7 +739,9 @@
 
     var dpr = window.devicePixelRatio || 1;
     var width = canvas.clientWidth || canvas.parentNode.clientWidth || 480;
-    var height = 150;
+    /* the drawing height now follows the CSS box, so the bitmap and the
+       layout cannot disagree on a short viewport */
+    var height = canvas.clientHeight || 150;
 
     /* A run under a second produces no samples at all. Leaving the
        canvas blank reads as a rendering failure, so say why it is
@@ -643,7 +749,6 @@
     if (!samples || samples.length < 2) {
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
-      canvas.style.height = height + "px";
 
       var ctx0 = canvas.getContext("2d");
       ctx0.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -665,7 +770,6 @@
 
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    canvas.style.height = height + "px";
 
     var ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -867,29 +971,150 @@
 
   var audio = null;
 
-  function blip(frequency, level) {
+  function audioContext() {
+    if (!audio) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audio = new Ctx();
+    }
+    if (audio.state === "suspended") audio.resume();
+    return audio;
+  }
+
+  /* A keyboard is not an instrument. Everything it makes is an impact —
+     plastic hitting plastic — and an impact is broadband noise with a
+     resonant peak, not a periodic wave. That is why the triangle notes
+     this replaced sounded like a doorbell however they were tuned: a
+     sine carries one frequency, a clack carries thousands.
+
+     So the click is built the way the physical thing is: a short burst
+     of noise through a band-pass filter for the clack, plus a brief low
+     sine under it for the weight of the keycap landing. */
+
+  var NOISE_SECONDS = 0.3;
+  var noiseBuffer = null;
+
+  /* One second of white noise, generated once and reused. Building it per
+     keystroke would allocate a buffer sixty times a second. */
+  function noiseBufferFor(ctx) {
+    if (noiseBuffer) return noiseBuffer;
+    var length = Math.floor(ctx.sampleRate * NOISE_SECONDS);
+    var buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    noiseBuffer = buffer;
+    return buffer;
+  }
+
+  /* One impact. `center` is where the resonant peak sits — 3kHz reads as
+     crisp and thin, 1.5kHz as heavier. `weight` is the low thump that
+     makes it sound like a keycap rather than a hiss; without it the
+     burst is just a shhh.
+
+     The high-pass in front of the band-pass is not cosmetic. White noise
+     carries energy at every frequency, and a gentle band-pass lets a
+     wide skirt of the low end through — that skirt arrives as a floor of
+     hiss beneath the click, which is heard as mud. Cutting everything
+     under ~380Hz first means the filter only has to shape the band that
+     matters. */
+  function impact(ctx, delay, center, q, level, decay, weightHz, weight) {
+    var at = ctx.currentTime + delay;
+
+    var src = ctx.createBufferSource();
+    src.buffer = noiseBufferFor(ctx);
+    src.loop = true;
+
+    var floor = ctx.createBiquadFilter();
+    floor.type = "highpass";
+    floor.frequency.value = FLOOR_HZ;
+    floor.Q.value = 0.7;
+
+    var band = ctx.createBiquadFilter();
+    band.type = "bandpass";
+    band.frequency.value = center;
+    band.Q.value = q;
+
+    var body = ctx.createGain();
+    body.gain.setValueAtTime(0.0001, at);
+    body.gain.linearRampToValueAtTime(level, at + 0.0015);
+    body.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+
+    src.connect(floor);
+    floor.connect(band);
+    band.connect(body);
+    body.connect(ctx.destination);
+    src.start(at);
+    src.stop(at + decay + 0.02);
+
+    if (!weight) return;
+
+    /* The thump bypasses the high-pass on purpose: it is the only low
+       content allowed through, so it stays a sense of weight instead of
+       a band of rumble. Short and quiet — enough to feel, not to hear. */
+    var thump = ctx.createOscillator();
+    var thumpGain = ctx.createGain();
+    thump.type = "sine";
+    thump.frequency.setValueAtTime(weightHz, at);
+    thump.frequency.exponentialRampToValueAtTime(weightHz * 0.7, at + decay);
+    thumpGain.gain.setValueAtTime(0.0001, at);
+    thumpGain.gain.linearRampToValueAtTime(weight, at + 0.002);
+    thumpGain.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+    thump.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thump.start(at);
+    thump.stop(at + decay + 0.02);
+  }
+
+  /* Tuning, by ear. One material, two hits.
+
+     Two earlier designs are worth remembering, because each traded away
+     something this one keeps.
+
+     A double click failed on physics: two impacts 45ms apart do not
+     arrive as two sounds. Below roughly 300ms the ear fuses repeated
+     transients into one rougher event, so the second click read as the
+     first one going dull rather than as a second hit.
+
+     A falling sine under the error was unmistakable, and it worked — but
+     it put a second *kind* of sound into a page that only ever wanted
+     one. It made the error the most interesting thing on screen, which
+     is the opposite of what an error should be.
+
+     This version adds nothing. Same burst of noise, same filter, same
+     envelope shape; only the physics of the impact differ:
+
+       correct  higher, narrower, 14ms   — a point
+       error    lower, wider, 34ms       — the same hit, with a body
+
+     The frequency drop is the part that is heard first, the extra body
+     is what makes it read as wrong rather than merely different, and
+     neither of them is a new sound. Neither is louder either: the error
+     is quieter per millisecond and longer, so it carries more energy
+     without ever being the loudest thing in the room. */
+  var FLOOR_HZ = 380;
+
+  var CLICK_HZ = 3000;
+  var CLICK_Q = 2.2;
+  var CLICK_LEVEL = 0.8;
+  var CLICK_DECAY = 0.014;
+
+  var ERR_HZ = 2100;
+  var ERR_Q = 1.5;
+  var ERR_LEVEL = 0.7;
+  var ERR_DECAY = 0.034;
+
+  function keySound(ok) {
     if (!state.settings.sound) return;
     try {
-      if (!audio) {
-        var Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        audio = new Ctx();
+      var ctx = audioContext();
+      if (!ctx) return;
+
+      if (ok) {
+        impact(ctx, 0, CLICK_HZ, CLICK_Q, CLICK_LEVEL, CLICK_DECAY, 170, 0.015);
+        return;
       }
-      if (audio.state === "suspended") audio.resume();
 
-      var now = audio.currentTime;
-      var osc = audio.createOscillator();
-      var gain = audio.createGain();
-
-      osc.type = "triangle";
-      osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(level, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
-
-      osc.connect(gain);
-      gain.connect(audio.destination);
-      osc.start(now);
-      osc.stop(now + 0.04);
+      impact(ctx, 0, ERR_HZ, ERR_Q, ERR_LEVEL, ERR_DECAY, 150, 0.022);
     } catch (err) {
       /* audio is a nicety, never a failure path */
     }
@@ -902,6 +1127,9 @@
   function wireInput() {
     els.typer.addEventListener("input", function (event) {
       if (event.isComposing) return;
+
+      var engine = state.engine;
+      var before = engine ? engine.input.length : 0;
       var value = els.typer.value;
       var ceiling = state.text.length + 48;
 
@@ -926,7 +1154,20 @@
       /* keep the caret pinned to the end so typing stays linear */
       try { els.typer.setSelectionRange(value.length, value.length); } catch (err) {}
 
-      if (state.engine) state.engine.push(value);
+      if (!engine) return;
+
+      var added = value.length - before;
+
+      engine.push(value);
+
+      /* The click follows the verdict, not the keypress. keydown fires
+         before the character exists, so it could never know whether the
+         key was the right one — which is why every error used to sound
+         like a success. */
+      if (added > 0) {
+        var at = value.length - 1;
+        keySound(at < engine.text.length && value.charAt(at) === engine.text.charAt(at));
+      }
     });
 
     els.typer.addEventListener("keydown", function (event) {
@@ -938,15 +1179,6 @@
       } else if (!caps) {
         state.capsWarned = false;
       }
-
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key.length !== 1 && event.key !== "Backspace") return;
-      if (!state.engine || state.engine.finished) return;
-
-      /* correct or not is the engine's business; the click only
-         reports that a key landed */
-      if (event.key === "Backspace") blip(320, 0.035);
-      else blip(660, 0.03);
     });
 
     /* losing focus silently swallows keystrokes — the classic "the page
@@ -1051,7 +1283,9 @@
       var next = !state.settings.sound;
       state.settings = window.Store.saveSettings({ sound: next });
       els.btnSound.setAttribute("aria-pressed", next ? "true" : "false");
-      if (next) blip(660, 0.03);
+      /* the switch has to demonstrate itself — a mute toggle that makes
+         no sound gives no evidence it worked */
+      if (next) keySound(true);
     });
 
     els.btnStats.addEventListener("click", function () {
@@ -1079,12 +1313,16 @@
       if (button) setMode(button.dataset.mode);
     });
 
+    /* A resize moves every character without changing the text, so the
+       cached geometry has to be rebuilt along with the chart. */
     var resizeTimer = 0;
     window.addEventListener("resize", function () {
-      if (els.result.hidden || !state.lastResult) return;
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(function () {
-        drawChart(state.lastResult.raw.samples);
+        if (state.engine && !state.engine.finished) state.engine.remeasure();
+        if (!els.result.hidden && state.lastResult) {
+          drawChart(state.lastResult.raw.samples);
+        }
       }, 150);
     });
   }
@@ -1117,10 +1355,10 @@
     if (!state.settings.taught) openTeach();
 
     /* the layout shifts slightly once the webfont lands, which
-       moves every character — re-measure the caret when it does */
+       moves every character — rebuild the geometry, not just the caret */
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(function () {
-        if (state.engine) state.engine.moveCaret();
+        if (state.engine) state.engine.remeasure();
       });
     }
   }
